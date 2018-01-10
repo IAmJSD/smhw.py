@@ -10,6 +10,15 @@ import logging, inspect, asyncio, json, requests, threading, dateutil.parser
 
 class student_client:
 
+    internal_functions = dict()
+    # A list of functions used in the script.
+
+    def add_to_internal_functions(self):
+        def deco(func):
+            self.internal_functions[func.__name__] = func
+        return deco
+    # Adds the internal function via a decorator.
+
     logged_in = False
     # Boolean to show if logged in or not.
 
@@ -54,14 +63,16 @@ class student_client:
             self.logger.info(func.__name__ + " has been registered as an event.")
     # Registers the event.
 
+    @add_to_internal_functions()
     def get_profile_data(self):
         response = json.loads(requests.get("https://api.showmyhomework.co.uk/api/students",
                                 headers={"Accept": "application/smhw.v3+json",
                                          "Authorization": "Bearer " + self.profile.smhw_token}).text)
         self.profile.json_raw = response["students"][0]
-        self.set_profile_data()
+        self.internal_functions["set_profile_data"]()
     # Gets profile data then sets it.
 
+    @add_to_internal_functions()
     def set_profile_data(self):
         self.profile.student_id = self.profile.json_raw["id"]
         self.profile.avatar = self.profile.json_raw["avatar"]
@@ -74,6 +85,7 @@ class student_client:
         self.profile.class_group_ids = self.profile.json_raw["class_group_ids"]
     # Sets profile data.
 
+    @add_to_internal_functions()
     async def _refresh_token(self):
         while True:
                 if self.logged_in:
@@ -92,6 +104,7 @@ class student_client:
                         await self.registered_events["on_token_refresh"]()
     # Automagically refreshes the token and runs on_token_refresh if it exists.
 
+    @add_to_internal_functions()
     async def _login(self):
         self.logger.info("Logging in using the credentials given.")
         try:
@@ -121,13 +134,14 @@ class student_client:
         else:
             raise Exception(
                 "This API is only intended for students.")
-        self.get_profile_data()
+        self.internal_functions["get_profile_data"]()
         self.logged_in = True
         del self.username, self.password
         if "on_ready" in self.registered_events:
             await self.registered_events["on_ready"]()
     # Logs into the API, gets profile data and runs on_ready if it exists.
 
+    @add_to_internal_functions()
     def homework_structure(self, homework_json):
         class homework:
             completed, due_date, description, issued_on, homework_id, homework_url, teacher_name, subject, title, class_group = \
@@ -145,6 +159,7 @@ class student_client:
         return homework
     # Structures the homework.
 
+    @add_to_internal_functions()
     def get_homeworks(self):
         response = json.loads(requests.get("https://api.showmyhomework.co.uk/api/todos",
                                            headers={"Accept": "application/smhw.v3+json",
@@ -152,11 +167,12 @@ class student_client:
         homeworks = response["todos"]
         harr = []
         for homework in homeworks:
-            homework = self.homework_structure(homework)
+            homework = self.self.internal_functions["homework_structure"](homework)
             harr.append(homework)
         return harr
     # Gets the homeworks.
 
+    @add_to_internal_functions()
     async def _check_for_homework(self):
         while True:
             if self.logged_in:
@@ -168,37 +184,43 @@ class student_client:
                     response = json.loads(requests.get("https://api.showmyhomework.co.uk/api/todos",
                                                        headers={"Accept": "application/smhw.v3+json",
                                                                 "Authorization": "Bearer " + self.profile.smhw_token}).text)
+
                     if len(response["todos"])-len(homeworks) >= 1:
                         if "on_homework_set" in self.registered_events:
                             difference = list(set(homeworks)-set(response["todos"]))
                             homeworks = response["todos"]
                             for homework_json in difference:
-                                await self.registered_events["on_homework_set"](self.homework_structure(homework_json))
+                                await self.registered_events["on_homework_set"](self.internal_functions["homework_structure"](homework_json))
+
                     elif len(response["todos"])-len(homeworks) <= -1:
                         homeworks = response["todos"]
                         difference = list(set(response["todos"]) - set(homeworks))
                         if "on_homework_removed" in self.registered_events:
                             for homework_json in difference:
-                                await self.registered_events["on_homework_removed"](self.homework_structure(homework_json))
+                                await self.registered_events["on_homework_removed"](self.internal_functions["homework_structure"](homework_json))
+
                     await asyncio.sleep(self.delay)
     # Checks for new homeworks and triggers on_homework_set if it exists.
 
+    @add_to_internal_functions()
     def login(self):
-        asyncio.new_event_loop().run_until_complete(self._login())
+        asyncio.new_event_loop().run_until_complete(self.internal_functions["_login"]())
     # Starts the async loop to login.
 
+    @add_to_internal_functions()
     def refresh_token(self):
-        asyncio.new_event_loop().run_until_complete(self._refresh_token())
+        asyncio.new_event_loop().run_until_complete(self.internal_functions["_refresh_token"]())
     # Starts the async loop to refresh the token.
 
+    @add_to_internal_functions()
     def check_for_homework(self):
-        asyncio.new_event_loop().run_until_complete(self._check_for_homework())
+        asyncio.new_event_loop().run_until_complete(self.internal_functions["_check_for_homework"]())
     # Starts the async loop to check for homework.
 
     def run(self):
-        threading.Thread(target=self.login).start()
-        threading.Thread(target=self.refresh_token).start()
-        threading.Thread(target=self.check_for_homework).start()
+        threading.Thread(target=self.internal_functions["login"]).start()
+        threading.Thread(target=self.internal_functions["refresh_token"]).start()
+        threading.Thread(target=self.internal_functions["check_for_homework"]).start()
     # Starts all of the threads.
 
 # A class for all of the student client items.
